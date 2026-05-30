@@ -1,0 +1,12 @@
+{
+  "name": "upstox-atm-scanner",
+  "version": "1.0.0",
+  "scripts": { "start": "node index.js" },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "express": "^4.19.2",
+    "technicalindicators": "^3.1.0",
+    "protobufjs": "^7.2.6",
+    "axios": "^1.7.2"
+  }
+}
