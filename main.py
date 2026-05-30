@@ -1,118 +1,91 @@
-import os
-import time
 import requests
+import os
+from flask import Flask
 from datetime import datetime
+import pandas as pd
+import numpy as np
 
-UPSTOX_TOKEN = os.getenv("UPSTOX_TOKEN")
-TELEGRAM_BOT = os.getenv("TELEGRAM_BOT")
-TELEGRAM_CHAT = os.getenv("TELEGRAM_CHAT")
+app = Flask(__name__)
 
-HEADERS = {
+TOKEN = os.environ.get("UPSTOX_TOKEN")
+headers = {
     "Accept": "application/json",
-    "Authorization": f"Bearer {UPSTOX_TOKEN}"
+    "Authorization": f"Bearer {TOKEN}"
 }
 
-STOCKS = {
-    "NIFTY":"NSE_INDEX|Nifty 50",
-    "BANKNIFTY":"NSE_INDEX|Nifty Bank",
-    "FINNIFTY":"NSE_INDEX|Nifty Fin Service",
-    "MIDCPNIFTY":"NSE_INDEX|Nifty Midcap Select",
-    "RELIANCE":"NSE_EQ|INE002A01018",
-    "HDFCBANK":"NSE_EQ|INE040A01034",
-    "ICICIBANK":"NSE_EQ|INE090A01021",
-    "SBIN":"NSE_EQ|INE062A01020",
-    "INFY":"NSE_EQ|INE009A01021",
-    "TCS":"NSE_EQ|INE467B01029",
-    "AXISBANK":"NSE_EQ|INE238A01034",
-    "KOTAKBANK":"NSE_EQ|INE237A01028",
-    "LT":"NSE_EQ|INE018A01030",
-    "ITC":"NSE_EQ|INE154A01025",
-    "BHARTIARTL":"NSE_EQ|INE397D01024",
-    "TATAMOTORS":"NSE_EQ|INE155A01022"
-}
+def get_instrument_master():
+    """Saare F&O instruments ki list"""
+    url = "https://api.upstox.com/v2/instrument/type/FUT"
+    r = requests.get(url, headers=headers)
+    data = r.json()
+    return data['data'] # list of dicts
 
-last_prices = {}
+def get_ltp(instrument_key):
+    url = "https://api.upstox.com/v2/market-quote/ltp"
+    r = requests.get(url, headers=headers, params={"instrument_key": instrument_key})
+    data = r.json()
+    key = list(data["data"].keys())[0]
+    return float(data["data"][key]["last_price"])
 
-def telegram(msg):
-    if not TELEGRAM_BOT or not TELEGRAM_CHAT:
-        return
+def get_candle_rsi(instrument_key):
+    """Last 30 candles se RSI 14"""
+    url = f"https://api.upstox.com/v2/historical-candle/{instrument_key}/1minute/30"
+    r = requests.get(url, headers=headers)
+    data = r.json()
 
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT}/sendMessage",
-            json={
-                "chat_id": TELEGRAM_CHAT,
-                "text": msg
-            },
-            timeout=10
-        )
-    except:
-        pass
-
-def get_ltp(key):
-    try:
-        r = requests.get(
-            "https://api.upstox.com/v2/market-quote/ltp",
-            headers=HEADERS,
-            params={"instrument_key": key},
-            timeout=10
-        )
-
-        data = r.json()
-
-        if data.get("status") != "success":
-            return None
-
-        first_key = list(data["data"].keys())[0]
-        return data["data"][first_key]["last_price"]
-
-    except:
+    if 'data' not in data or not data['data']['candles']:
         return None
 
-telegram("🚀 Scanner Started")
+    candles = data['data']['candles']
+    df = pd.DataFrame(candles, columns=['time','o','h','l','c','v','oi'])
+    df['c'] = df['c'].astype(float)
 
-while True:
+    delta = df['c'].diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(14).mean()
+    avg_loss = loss.rolling(14).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return round(rsi.iloc[-1], 2)
 
-    print("=" * 50)
-    print(datetime.now())
+def scan_all_futures_rsi():
+    results = []
+    instruments = get_instrument_master()
 
-    for symbol, key in STOCKS.items():
+    # Sirf NSE ke stocks le, expiry nearest wali
+    seen_stocks = set()
 
-        price = get_ltp(key)
+    for inst in instruments:
+        name = inst['name'] # RELIANCE, TCS etc
+        exchange = inst['exchange']
+        instrument_key = inst['instrument_key'] # NSE_FO|RELIANCE25MAYFUT
 
-        if price is None:
+        if exchange!= 'NSE' or name in seen_stocks:
             continue
 
-        print(f"{symbol} = {price}")
+        seen_stocks.add(name)
 
-        if symbol in last_prices:
+        try:
+            ltp = get_ltp(instrument_key)
+            rsi = get_candle_rsi(instrument_key)
 
-            old = last_prices[symbol]
+            if rsi is None:
+                continue
 
-            change = ((price - old) / old) * 100
+            if rsi > 60:
+                results.append(f"🚨 <b>{name}</b><br>Key: {instrument_key}<br>LTP: {ltp} | RSI: {rsi}<br><br>")
 
-            if change >= 1:
+        except:
+            continue
 
-                msg = (
-                    f"🔥 BUY ALERT\n\n"
-                    f"{symbol}\n"
-                    f"Price: {price}\n"
-                    f"Move: +{round(change,2)}%"
-                )
+    return "".join(results) if results else "Abhi koi stock RSI 60 cross nahi kar raha"
 
-                telegram(msg)
+@app.route("/")
+def home():
+    data = scan_all_futures_rsi()
+    return f"<h3>All F&O Stocks ATM RSI > 60 Scanner</h3>Scan time: {datetime.now().strftime('%H:%M:%S')}<br><br>{data}"
 
-            elif change <= -1:
-
-                msg = (
-                    f"🔻 SELL ALERT\n\n"
-                    f"{symbol}\n"
-                    f"Price: {price}\n"
-                    f"Move: {round(change,2)}%"
-                )
-
-                telegram(msg)
-
-        last_prices[symbol] = price
-
-    time.sleep(300)
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
