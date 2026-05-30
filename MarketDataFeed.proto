@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package com.upstox.marketdatafeederv3udapi.rpc.proto;
+
+option java_multiple_files = true;
+option java_package = "com.upstox.marketdatafeederv3udapi.rpc.proto";
+option java_outer_classname = "MarketDataFeed";
+
+message MarketDataFeed {
+  map<string, Feed> feeds = 1;
+}
+
+message Feed {
+  oneof feedType {
+    LTPFeed ltp = 1;
+    FullFeed fullFeed = 2;
+    OptionGreeksFeed optionGreeks = 3;
+  }
+}
+
+message LTPFeed {
+  double ltp = 1;
+  int64 ltq = 2;
+  int64 ts = 3;
+}
+
+message FullFeed {
+  MarketFF marketFF = 1;
+  OptionGreeksFeed optionGreeks = 2;
+  MarketLevel marketLevel = 3;
+  MarketOHLC ohlc = 4;
+}
+
+message MarketFF {
+  double ltp = 1;
+  int64 ltq = 2;
+  int64 ts = 3;
+  double cp = 4;
+  Quote quote = 5;
+}
+
+message Quote {
+  double b = 1;
+  int64 bq = 2;
+  double a = 3;
+  int64 aq = 4;
+}
+
+message OptionGreeksFeed {
+  double op = 1;
+  double up = 2;
+  double iv = 3;
+  double delta = 4;
+  double theta = 5;
+  double gamma = 6;
+  double vega = 7;
+}
+
+message MarketLevel {
+  repeated MarketLevelData bids = 1;
+  repeated MarketLevelData asks = 2;
+}
+
+message MarketLevelData {
+  double price = 1;
+  int64 qty = 2;
+  int32 orders = 3;
+}
+
+message MarketOHLC {
+  repeated OHLC ohlc = 1;
+}
+
+message OHLC {
+  double open = 1;
+  double high = 2;
+  double low = 3;
+  double close = 4;
+  int64 volume = 5;
+  int64 ts = 6;
+}
