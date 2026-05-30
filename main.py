@@ -1,43 +1,118 @@
-import requests
 import os
 import time
+import requests
+from datetime import datetime
 
-TOKEN = os.environ.get("UPSTOX_TOKEN")
+UPSTOX_TOKEN = os.getenv("UPSTOX_TOKEN")
+TELEGRAM_BOT = os.getenv("TELEGRAM_BOT")
+TELEGRAM_CHAT = os.getenv("TELEGRAM_CHAT")
 
-headers = {
+HEADERS = {
     "Accept": "application/json",
-    "Authorization": f"Bearer {TOKEN}"
+    "Authorization": f"Bearer {UPSTOX_TOKEN}"
 }
 
-symbols = [
-    "NSE_INDEX|Nifty 50",
-    "NSE_INDEX|Nifty Bank",
-    "NSE_INDEX|Nifty Fin Service",
-    "NSE_INDEX|Nifty Midcap Select"
-]
+STOCKS = {
+    "NIFTY":"NSE_INDEX|Nifty 50",
+    "BANKNIFTY":"NSE_INDEX|Nifty Bank",
+    "FINNIFTY":"NSE_INDEX|Nifty Fin Service",
+    "MIDCPNIFTY":"NSE_INDEX|Nifty Midcap Select",
+    "RELIANCE":"NSE_EQ|INE002A01018",
+    "HDFCBANK":"NSE_EQ|INE040A01034",
+    "ICICIBANK":"NSE_EQ|INE090A01021",
+    "SBIN":"NSE_EQ|INE062A01020",
+    "INFY":"NSE_EQ|INE009A01021",
+    "TCS":"NSE_EQ|INE467B01029",
+    "AXISBANK":"NSE_EQ|INE238A01034",
+    "KOTAKBANK":"NSE_EQ|INE237A01028",
+    "LT":"NSE_EQ|INE018A01030",
+    "ITC":"NSE_EQ|INE154A01025",
+    "BHARTIARTL":"NSE_EQ|INE397D01024",
+    "TATAMOTORS":"NSE_EQ|INE155A01022"
+}
 
-while True:
-    print("=" * 40)
+last_prices = {}
 
-    for symbol in symbols:
-        url = "https://api.upstox.com/v2/market-quote/ltp"
+def telegram(msg):
+    if not TELEGRAM_BOT or not TELEGRAM_CHAT:
+        return
+
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT}/sendMessage",
+            json={
+                "chat_id": TELEGRAM_CHAT,
+                "text": msg
+            },
+            timeout=10
+        )
+    except:
+        pass
+
+def get_ltp(key):
+    try:
         r = requests.get(
-            url,
-            headers=headers,
-            params={"instrument_key": symbol}
+            "https://api.upstox.com/v2/market-quote/ltp",
+            headers=HEADERS,
+            params={"instrument_key": key},
+            timeout=10
         )
 
         data = r.json()
 
-        try:
-            key = list(data["data"].keys())[0]
-            price = data["data"][key]["last_price"]
+        if data.get("status") != "success":
+            return None
 
-            print(f"{symbol}")
-            print(f"Price = {price}")
-            print("-" * 30)
+        first_key = list(data["data"].keys())[0]
+        return data["data"][first_key]["last_price"]
 
-        except Exception as e:
-            print(symbol, "ERROR")
+    except:
+        return None
 
-    time.sleep(60)
+telegram("🚀 Scanner Started")
+
+while True:
+
+    print("=" * 50)
+    print(datetime.now())
+
+    for symbol, key in STOCKS.items():
+
+        price = get_ltp(key)
+
+        if price is None:
+            continue
+
+        print(f"{symbol} = {price}")
+
+        if symbol in last_prices:
+
+            old = last_prices[symbol]
+
+            change = ((price - old) / old) * 100
+
+            if change >= 1:
+
+                msg = (
+                    f"🔥 BUY ALERT\n\n"
+                    f"{symbol}\n"
+                    f"Price: {price}\n"
+                    f"Move: +{round(change,2)}%"
+                )
+
+                telegram(msg)
+
+            elif change <= -1:
+
+                msg = (
+                    f"🔻 SELL ALERT\n\n"
+                    f"{symbol}\n"
+                    f"Price: {price}\n"
+                    f"Move: {round(change,2)}%"
+                )
+
+                telegram(msg)
+
+        last_prices[symbol] = price
+
+    time.sleep(300)
