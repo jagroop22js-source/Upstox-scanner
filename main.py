@@ -2,25 +2,49 @@ import os, time, requests
 from datetime import datetime, timedelta
 
 # ── SETTINGS ──────────────────────────────────────────────
-ACCESS_TOKEN   = os.environ.get("UPSTOX_TOKEN", "")
-TELEGRAM_BOT   = os.environ.get("TELEGRAM_BOT", "")
-TELEGRAM_CHAT  = os.environ.get("TELEGRAM_CHAT", "")
-WEEKLY_EXPIRY  = os.environ.get("WEEKLY_EXPIRY",  "2026-06-04")
-MONTHLY_EXPIRY = os.environ.get("MONTHLY_EXPIRY", "2026-06-30")
+ACCESS_TOKEN  = os.environ.get("UPSTOX_TOKEN", "")
+TELEGRAM_BOT  = os.environ.get("TELEGRAM_BOT", "")
+TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT", "")
 
 HEADERS = {
     "Authorization": f"Bearer {ACCESS_TOKEN}",
     "Accept": "application/json"
 }
 
-# ── F&O STOCKS ─────────────────────────────────────────────
+# ── AUTO EXPIRY CALCULATOR ─────────────────────────────────
+def get_weekly_expiry():
+    """Next Thursday — NIFTY only"""
+    today = datetime.now()
+    days_ahead = 3 - today.weekday()
+    if days_ahead <= 0:
+        days_ahead += 7
+    return (today + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+
+def get_monthly_expiry():
+    """Last Thursday of current month — BANKNIFTY + all stocks"""
+    today = datetime.now()
+    if today.month == 12:
+        next_month = today.replace(year=today.year+1, month=1, day=1)
+    else:
+        next_month = today.replace(month=today.month+1, day=1)
+    last_day   = next_month - timedelta(days=1)
+    days_back  = (last_day.weekday() - 3) % 7
+    last_thurs = last_day - timedelta(days=days_back)
+    return last_thurs.strftime("%Y-%m-%d")
+
+WEEKLY_EXPIRY  = get_weekly_expiry()   # NIFTY only
+MONTHLY_EXPIRY = get_monthly_expiry()  # BANKNIFTY + all stocks
+
+# ── F&O STOCKS WITH CORRECT EXPIRY ────────────────────────
 FNO_STOCKS = {
-    # NIFTY = WEEKLY EXPIRY
+    # ── NIFTY = WEEKLY ──────────────────────────────────
     "NIFTY":       {"key": "NSE_INDEX|Nifty 50",           "step": 50,  "expiry": "weekly"},
-    # MONTHLY EXPIRY
+
+    # ── MONTHLY EXPIRY ───────────────────────────────────
     "BANKNIFTY":   {"key": "NSE_INDEX|Nifty Bank",          "step": 100, "expiry": "monthly"},
     "FINNIFTY":    {"key": "NSE_INDEX|Nifty Fin Service",   "step": 50,  "expiry": "monthly"},
     "MIDCPNIFTY":  {"key": "NSE_INDEX|Nifty Midcap Select", "step": 25,  "expiry": "monthly"},
+    # BANKING
     "HDFCBANK":    {"key": "NSE_EQ|INE040A01034", "step": 20,  "expiry": "monthly"},
     "ICICIBANK":   {"key": "NSE_EQ|INE090A01021", "step": 20,  "expiry": "monthly"},
     "SBIN":        {"key": "NSE_EQ|INE062A01020", "step": 10,  "expiry": "monthly"},
@@ -35,6 +59,7 @@ FNO_STOCKS = {
     "AUBANK":      {"key": "NSE_EQ|INE949L01017", "step": 5,   "expiry": "monthly"},
     "BANDHANBNK":  {"key": "NSE_EQ|INE545U01014", "step": 5,   "expiry": "monthly"},
     "RBLBANK":     {"key": "NSE_EQ|INE976G01028", "step": 2,   "expiry": "monthly"},
+    # IT
     "TCS":         {"key": "NSE_EQ|INE467B01029", "step": 50,  "expiry": "monthly"},
     "INFY":        {"key": "NSE_EQ|INE009A01021", "step": 20,  "expiry": "monthly"},
     "WIPRO":       {"key": "NSE_EQ|INE075A01022", "step": 5,   "expiry": "monthly"},
@@ -45,6 +70,7 @@ FNO_STOCKS = {
     "PERSISTENT":  {"key": "NSE_EQ|INE262H01021", "step": 100, "expiry": "monthly"},
     "COFORGE":     {"key": "NSE_EQ|INE591G01017", "step": 50,  "expiry": "monthly"},
     "OFSS":        {"key": "NSE_EQ|INE881D01027", "step": 100, "expiry": "monthly"},
+    # AUTO
     "TATAMOTORS":  {"key": "NSE_EQ|INE155A01022", "step": 5,   "expiry": "monthly"},
     "MARUTI":      {"key": "NSE_EQ|INE585B01010", "step": 100, "expiry": "monthly"},
     "BAJAJ-AUTO":  {"key": "NSE_EQ|INE917I01010", "step": 50,  "expiry": "monthly"},
@@ -55,6 +81,7 @@ FNO_STOCKS = {
     "TVSMOTOR":    {"key": "NSE_EQ|INE494B01023", "step": 20,  "expiry": "monthly"},
     "BAJAJFINSV":  {"key": "NSE_EQ|INE918I01026", "step": 20,  "expiry": "monthly"},
     "MOTHERSON":   {"key": "NSE_EQ|INE775A01035", "step": 2,   "expiry": "monthly"},
+    # ENERGY
     "RELIANCE":    {"key": "NSE_EQ|INE002A01018", "step": 20,  "expiry": "monthly"},
     "ONGC":        {"key": "NSE_EQ|INE213A01029", "step": 5,   "expiry": "monthly"},
     "IOC":         {"key": "NSE_EQ|INE242A01010", "step": 2,   "expiry": "monthly"},
@@ -66,6 +93,7 @@ FNO_STOCKS = {
     "POWERGRID":   {"key": "NSE_EQ|INE752E01010", "step": 5,   "expiry": "monthly"},
     "TATAPOWER":   {"key": "NSE_EQ|INE245A01021", "step": 5,   "expiry": "monthly"},
     "HINDPETRO":   {"key": "NSE_EQ|INE094A01015", "step": 5,   "expiry": "monthly"},
+    # METALS
     "TATASTEEL":   {"key": "NSE_EQ|INE081A01020", "step": 5,   "expiry": "monthly"},
     "JSWSTEEL":    {"key": "NSE_EQ|INE019A01038", "step": 10,  "expiry": "monthly"},
     "HINDALCO":    {"key": "NSE_EQ|INE038A01020", "step": 5,   "expiry": "monthly"},
@@ -74,6 +102,7 @@ FNO_STOCKS = {
     "NMDC":        {"key": "NSE_EQ|INE584A01023", "step": 2,   "expiry": "monthly"},
     "COALINDIA":   {"key": "NSE_EQ|INE522F01014", "step": 5,   "expiry": "monthly"},
     "JINDALSTEL":  {"key": "NSE_EQ|INE749A01030", "step": 10,  "expiry": "monthly"},
+    # PHARMA
     "SUNPHARMA":   {"key": "NSE_EQ|INE044A01036", "step": 20,  "expiry": "monthly"},
     "DRREDDY":     {"key": "NSE_EQ|INE089A01023", "step": 50,  "expiry": "monthly"},
     "CIPLA":       {"key": "NSE_EQ|INE059A01026", "step": 10,  "expiry": "monthly"},
@@ -83,6 +112,7 @@ FNO_STOCKS = {
     "BIOCON":      {"key": "NSE_EQ|INE376G01013", "step": 5,   "expiry": "monthly"},
     "ALKEM":       {"key": "NSE_EQ|INE540L01014", "step": 50,  "expiry": "monthly"},
     "TORNTPHARM":  {"key": "NSE_EQ|INE685A01028", "step": 50,  "expiry": "monthly"},
+    # NBFC
     "BAJFINANCE":  {"key": "NSE_EQ|INE296A01024", "step": 100, "expiry": "monthly"},
     "CHOLAFIN":    {"key": "NSE_EQ|INE121A01024", "step": 20,  "expiry": "monthly"},
     "MUTHOOTFIN":  {"key": "NSE_EQ|INE414G01012", "step": 20,  "expiry": "monthly"},
@@ -96,6 +126,7 @@ FNO_STOCKS = {
     "MANAPPURAM":  {"key": "NSE_EQ|INE522D01027", "step": 2,   "expiry": "monthly"},
     "M&MFIN":      {"key": "NSE_EQ|INE774D01024", "step": 5,   "expiry": "monthly"},
     "LICHSGFIN":   {"key": "NSE_EQ|INE115A01026", "step": 10,  "expiry": "monthly"},
+    # INFRA
     "LT":          {"key": "NSE_EQ|INE018A01030", "step": 50,  "expiry": "monthly"},
     "LTTS":        {"key": "NSE_EQ|INE010V01017", "step": 50,  "expiry": "monthly"},
     "ABB":         {"key": "NSE_EQ|INE117A01022", "step": 50,  "expiry": "monthly"},
@@ -107,6 +138,7 @@ FNO_STOCKS = {
     "BEL":         {"key": "NSE_EQ|INE263A01024", "step": 2,   "expiry": "monthly"},
     "CONCOR":      {"key": "NSE_EQ|INE111A01025", "step": 10,  "expiry": "monthly"},
     "GMRINFRA":    {"key": "NSE_EQ|INE776C01039", "step": 2,   "expiry": "monthly"},
+    # FMCG
     "HINDUNILVR":  {"key": "NSE_EQ|INE030A01027", "step": 20,  "expiry": "monthly"},
     "ITC":         {"key": "NSE_EQ|INE154A01025", "step": 2,   "expiry": "monthly"},
     "NESTLEIND":   {"key": "NSE_EQ|INE239A01016", "step": 100, "expiry": "monthly"},
@@ -116,14 +148,17 @@ FNO_STOCKS = {
     "MARICO":      {"key": "NSE_EQ|INE196A01026", "step": 5,   "expiry": "monthly"},
     "TATACONSUM":  {"key": "NSE_EQ|INE192A01025", "step": 10,  "expiry": "monthly"},
     "COLPAL":      {"key": "NSE_EQ|INE259A01022", "step": 20,  "expiry": "monthly"},
+    # CEMENT
     "ULTRACEMCO":  {"key": "NSE_EQ|INE481G01011", "step": 100, "expiry": "monthly"},
     "SHREECEM":    {"key": "NSE_EQ|INE070A01015", "step": 200, "expiry": "monthly"},
     "AMBUJACEM":   {"key": "NSE_EQ|INE079A01024", "step": 10,  "expiry": "monthly"},
     "ACCLTD":      {"key": "NSE_EQ|INE012A01025", "step": 20,  "expiry": "monthly"},
     "JKCEMENT":    {"key": "NSE_EQ|INE823G01014", "step": 50,  "expiry": "monthly"},
     "RAMCOCEM":    {"key": "NSE_EQ|INE331A01037", "step": 10,  "expiry": "monthly"},
+    # TELECOM
     "BHARTIARTL":  {"key": "NSE_EQ|INE397D01024", "step": 10,  "expiry": "monthly"},
     "IDEA":        {"key": "NSE_EQ|INE669E01016", "step": 1,   "expiry": "monthly"},
+    # OTHERS
     "ASIANPAINT":  {"key": "NSE_EQ|INE021A01026", "step": 20,  "expiry": "monthly"},
     "TITAN":       {"key": "NSE_EQ|INE280A01028", "step": 20,  "expiry": "monthly"},
     "INDIGO":      {"key": "NSE_EQ|INE646L01027", "step": 50,  "expiry": "monthly"},
@@ -246,10 +281,13 @@ def get_option_chain(key, expiry):
     return []
 
 def run_scan():
+    weekly  = get_weekly_expiry()
+    monthly = get_monthly_expiry()
+
     log("=" * 55)
     log(f"🔍 Scanning {len(FNO_STOCKS)} F&O stocks")
-    log(f"📅 NIFTY Weekly:       {WEEKLY_EXPIRY}")
-    log(f"📅 All Others Monthly: {MONTHLY_EXPIRY}")
+    log(f"📅 NIFTY Weekly:  {weekly}")
+    log(f"📅 All Others Monthly: {monthly}")
     log("=" * 55)
 
     items    = list(FNO_STOCKS.items())
@@ -272,7 +310,8 @@ def run_scan():
             price  = sd.get("last_price", 0)
             if not price: continue
 
-            expiry = WEEKLY_EXPIRY if info["expiry"] == "weekly" else MONTHLY_EXPIRY
+            # SIRF NIFTY = WEEKLY, baaki sab = MONTHLY
+            expiry = weekly if info["expiry"] == "weekly" else monthly
             atm    = get_atm(price, info["step"])
             chain  = get_option_chain(info["key"], expiry)
             if not chain: continue
@@ -346,8 +385,8 @@ def run_scan():
 
 # ── MAIN ──────────────────────────────────────────────────
 log("🚀 ATM RSI SCANNER STARTED")
-log(f"📅 NIFTY Weekly:       {WEEKLY_EXPIRY}")
-log(f"📅 All Others Monthly: {MONTHLY_EXPIRY}")
+log(f"📅 NIFTY Weekly:        {WEEKLY_EXPIRY}")
+log(f"📅 All Others Monthly:  {MONTHLY_EXPIRY}")
 log(f"📊 {len(FNO_STOCKS)} F&O stocks")
 log(f"🔔 Telegram: {'✅' if TELEGRAM_BOT else '❌ Set TELEGRAM_BOT variable'}")
 log("=" * 55)
