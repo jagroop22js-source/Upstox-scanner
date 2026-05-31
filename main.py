@@ -5,7 +5,7 @@ from datetime import datetime
 ACCESS_TOKEN  = os.environ.get("UPSTOX_TOKEN", "")
 TELEGRAM_BOT  = os.environ.get("TELEGRAM_BOT", "")
 TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT", "")
-EXPIRY_DATE   = os.environ.get("EXPIRY_DATE", "2026-05-29")
+EXPIRY_DATE   = os.environ.get("EXPIRY_DATE", "2026-06-30")
 
 HEADERS = {
     "Authorization": f"Bearer {ACCESS_TOKEN}",
