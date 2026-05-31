@@ -1,183 +1,210 @@
 import os, time, requests
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ── SETTINGS ──────────────────────────────────────────────
 ACCESS_TOKEN  = os.environ.get("UPSTOX_TOKEN", "")
 TELEGRAM_BOT  = os.environ.get("TELEGRAM_BOT", "")
 TELEGRAM_CHAT = os.environ.get("TELEGRAM_CHAT", "")
-EXPIRY_DATE   = os.environ.get("EXPIRY_DATE", "2026-06-30")
 
 HEADERS = {
     "Authorization": f"Bearer {ACCESS_TOKEN}",
     "Accept": "application/json"
 }
 
-# ── ALL NSE F&O STOCKS ─────────────────────────────────────
+# ── AUTO EXPIRY CALCULATOR ─────────────────────────────────
+def get_weekly_expiry():
+    """Next Thursday (NIFTY/BANKNIFTY weekly expiry)"""
+    today = datetime.now()
+    days_ahead = 3 - today.weekday()  # Thursday = 3
+    if days_ahead <= 0:
+        days_ahead += 7
+    next_thursday = today + timedelta(days=days_ahead)
+    return next_thursday.strftime("%Y-%m-%d")
+
+def get_monthly_expiry():
+    """Last Thursday of current month (stock monthly expiry)"""
+    today = datetime.now()
+    # Find last Thursday of month
+    if today.month == 12:
+        next_month = today.replace(year=today.year+1, month=1, day=1)
+    else:
+        next_month = today.replace(month=today.month+1, day=1)
+    last_day = next_month - timedelta(days=1)
+    days_back = (last_day.weekday() - 3) % 7
+    last_thursday = last_day - timedelta(days=days_back)
+    return last_thursday.strftime("%Y-%m-%d")
+
+WEEKLY_EXPIRY  = get_weekly_expiry()
+MONTHLY_EXPIRY = get_monthly_expiry()
+
+# ── STOCKS WITH EXPIRY TYPE ────────────────────────────────
 FNO_STOCKS = {
-    "NIFTY":       {"key": "NSE_INDEX|Nifty 50",           "step": 50},
-    "BANKNIFTY":   {"key": "NSE_INDEX|Nifty Bank",          "step": 100},
-    "FINNIFTY":    {"key": "NSE_INDEX|Nifty Fin Service",   "step": 50},
-    "MIDCPNIFTY":  {"key": "NSE_INDEX|Nifty Midcap Select", "step": 25},
-    "HDFCBANK":    {"key": "NSE_EQ|INE040A01034", "step": 20},
-    "ICICIBANK":   {"key": "NSE_EQ|INE090A01021", "step": 20},
-    "SBIN":        {"key": "NSE_EQ|INE062A01020", "step": 10},
-    "AXISBANK":    {"key": "NSE_EQ|INE238A01034", "step": 10},
-    "KOTAKBANK":   {"key": "NSE_EQ|INE237A01028", "step": 20},
-    "INDUSINDBK":  {"key": "NSE_EQ|INE095A01012", "step": 10},
-    "BANKBARODA":  {"key": "NSE_EQ|INE028A01039", "step": 5},
-    "PNB":         {"key": "NSE_EQ|INE160A01022", "step": 2},
-    "CANBK":       {"key": "NSE_EQ|INE476A01014", "step": 5},
-    "FEDERALBNK":  {"key": "NSE_EQ|INE171A01029", "step": 2},
-    "IDFCFIRSTB":  {"key": "NSE_EQ|INE092T01019", "step": 2},
-    "AUBANK":      {"key": "NSE_EQ|INE949L01017", "step": 5},
-    "BANDHANBNK":  {"key": "NSE_EQ|INE545U01014", "step": 5},
-    "RBLBANK":     {"key": "NSE_EQ|INE976G01028", "step": 2},
-    "TCS":         {"key": "NSE_EQ|INE467B01029", "step": 50},
-    "INFY":        {"key": "NSE_EQ|INE009A01021", "step": 20},
-    "WIPRO":       {"key": "NSE_EQ|INE075A01022", "step": 5},
-    "HCLTECH":     {"key": "NSE_EQ|INE860A01027", "step": 20},
-    "TECHM":       {"key": "NSE_EQ|INE669C01036", "step": 10},
-    "LTIM":        {"key": "NSE_EQ|INE212H01026", "step": 50},
-    "MPHASIS":     {"key": "NSE_EQ|INE356A01018", "step": 50},
-    "PERSISTENT":  {"key": "NSE_EQ|INE262H01021", "step": 100},
-    "COFORGE":     {"key": "NSE_EQ|INE591G01017", "step": 50},
-    "TATAMOTORS":  {"key": "NSE_EQ|INE155A01022", "step": 5},
-    "MARUTI":      {"key": "NSE_EQ|INE585B01010", "step": 100},
-    "BAJAJ-AUTO":  {"key": "NSE_EQ|INE917I01010", "step": 50},
-    "HEROMOTOCO":  {"key": "NSE_EQ|INE158A01026", "step": 20},
-    "EICHERMOT":   {"key": "NSE_EQ|INE066A01021", "step": 50},
-    "M&M":         {"key": "NSE_EQ|INE101A01026", "step": 20},
-    "ASHOKLEY":    {"key": "NSE_EQ|INE208A01029", "step": 2},
-    "TVSMOTOR":    {"key": "NSE_EQ|INE494B01023", "step": 20},
-    "BAJAJFINSV":  {"key": "NSE_EQ|INE918I01026", "step": 20},
-    "MOTHERSON":   {"key": "NSE_EQ|INE775A01035", "step": 2},
-    "RELIANCE":    {"key": "NSE_EQ|INE002A01018", "step": 20},
-    "ONGC":        {"key": "NSE_EQ|INE213A01029", "step": 5},
-    "IOC":         {"key": "NSE_EQ|INE242A01010", "step": 2},
-    "BPCL":        {"key": "NSE_EQ|INE029A01011", "step": 5},
-    "GAIL":        {"key": "NSE_EQ|INE129A01019", "step": 5},
-    "HINDPETRO":   {"key": "NSE_EQ|INE094A01015", "step": 5},
-    "ADANIENT":    {"key": "NSE_EQ|INE423A01024", "step": 50},
-    "ADANIPORTS":  {"key": "NSE_EQ|INE742F01042", "step": 20},
-    "NTPC":        {"key": "NSE_EQ|INE733E01010", "step": 5},
-    "POWERGRID":   {"key": "NSE_EQ|INE752E01010", "step": 5},
-    "TATAPOWER":   {"key": "NSE_EQ|INE245A01021", "step": 5},
-    "TATASTEEL":   {"key": "NSE_EQ|INE081A01020", "step": 5},
-    "JSWSTEEL":    {"key": "NSE_EQ|INE019A01038", "step": 10},
-    "HINDALCO":    {"key": "NSE_EQ|INE038A01020", "step": 5},
-    "VEDL":        {"key": "NSE_EQ|INE205A01025", "step": 5},
-    "SAIL":        {"key": "NSE_EQ|INE114A01011", "step": 2},
-    "NMDC":        {"key": "NSE_EQ|INE584A01023", "step": 2},
-    "COALINDIA":   {"key": "NSE_EQ|INE522F01014", "step": 5},
-    "SUNPHARMA":   {"key": "NSE_EQ|INE044A01036", "step": 20},
-    "DRREDDY":     {"key": "NSE_EQ|INE089A01023", "step": 50},
-    "CIPLA":       {"key": "NSE_EQ|INE059A01026", "step": 10},
-    "DIVISLAB":    {"key": "NSE_EQ|INE361B01024", "step": 50},
-    "AUROPHARMA":  {"key": "NSE_EQ|INE406A01037", "step": 10},
-    "LUPIN":       {"key": "NSE_EQ|INE326A01037", "step": 20},
-    "BAJFINANCE":  {"key": "NSE_EQ|INE296A01024", "step": 100},
-    "CHOLAFIN":    {"key": "NSE_EQ|INE121A01024", "step": 20},
-    "MUTHOOTFIN":  {"key": "NSE_EQ|INE414G01012", "step": 20},
-    "RECLTD":      {"key": "NSE_EQ|INE020B01018", "step": 5},
-    "PFC":         {"key": "NSE_EQ|INE134E01011", "step": 5},
-    "HDFCLIFE":    {"key": "NSE_EQ|INE795G01014", "step": 10},
-    "SBILIFE":     {"key": "NSE_EQ|INE123W01016", "step": 20},
-    "ICICIGI":     {"key": "NSE_EQ|INE765G01017", "step": 20},
-    "SBICARD":     {"key": "NSE_EQ|INE018E01016", "step": 10},
-    "LT":          {"key": "NSE_EQ|INE018A01030", "step": 50},
-    "LTTS":        {"key": "NSE_EQ|INE010V01017", "step": 50},
-    "ABB":         {"key": "NSE_EQ|INE117A01022", "step": 50},
-    "SIEMENS":     {"key": "NSE_EQ|INE003A01024", "step": 100},
-    "HAVELLS":     {"key": "NSE_EQ|INE176B01034", "step": 20},
-    "BHEL":        {"key": "NSE_EQ|INE257A01026", "step": 5},
-    "IRFC":        {"key": "NSE_EQ|INE053F01010", "step": 2},
-    "HAL":         {"key": "NSE_EQ|INE066F01020", "step": 50},
-    "BEL":         {"key": "NSE_EQ|INE263A01024", "step": 2},
-    "HINDUNILVR":  {"key": "NSE_EQ|INE030A01027", "step": 20},
-    "ITC":         {"key": "NSE_EQ|INE154A01025", "step": 2},
-    "NESTLEIND":   {"key": "NSE_EQ|INE239A01016", "step": 100},
-    "BRITANNIA":   {"key": "NSE_EQ|INE216A01030", "step": 50},
-    "GODREJCP":    {"key": "NSE_EQ|INE102D01028", "step": 20},
-    "DABUR":       {"key": "NSE_EQ|INE016A01026", "step": 5},
-    "MARICO":      {"key": "NSE_EQ|INE196A01026", "step": 5},
-    "TATACONSUM":  {"key": "NSE_EQ|INE192A01025", "step": 10},
-    "ULTRACEMCO":  {"key": "NSE_EQ|INE481G01011", "step": 100},
-    "SHREECEM":    {"key": "NSE_EQ|INE070A01015", "step": 200},
-    "AMBUJACEM":   {"key": "NSE_EQ|INE079A01024", "step": 10},
-    "ACCLTD":      {"key": "NSE_EQ|INE012A01025", "step": 20},
-    "BHARTIARTL":  {"key": "NSE_EQ|INE397D01024", "step": 10},
-    "DMART":       {"key": "NSE_EQ|INE192R01011", "step": 50},
-    "TRENT":       {"key": "NSE_EQ|INE849A01020", "step": 50},
-    "ZOMATO":      {"key": "NSE_EQ|INE758T01015", "step": 5},
-    "ASIANPAINT":  {"key": "NSE_EQ|INE021A01026", "step": 20},
-    "TITAN":       {"key": "NSE_EQ|INE280A01028", "step": 20},
-    "INDIGO":      {"key": "NSE_EQ|INE646L01027", "step": 50},
-    "IRCTC":       {"key": "NSE_EQ|INE335Y01020", "step": 10},
-    "HAL":         {"key": "NSE_EQ|INE066F01020", "step": 50},
-    "DLF":         {"key": "NSE_EQ|INE271C01023", "step": 5},
-    "GRASIM":      {"key": "NSE_EQ|INE047A01021", "step": 10},
-    "APOLLOHOSP":  {"key": "NSE_EQ|INE437A01024", "step": 50},
-    "HCLTECH":     {"key": "NSE_EQ|INE860A01027", "step": 20},
-    "EICHERMOT":   {"key": "NSE_EQ|INE066A01021", "step": 50},
-    "GODREJPROP":  {"key": "NSE_EQ|INE484J01027", "step": 20},
-    "UPL":         {"key": "NSE_EQ|INE628A01036", "step": 10},
-    "SRF":         {"key": "NSE_EQ|INE647A01010", "step": 50},
-    "PIDILITIND":  {"key": "NSE_EQ|INE318A01026", "step": 50},
-    "BERGEPAINT":  {"key": "NSE_EQ|INE463A01038", "step": 10},
-    "JUBLFOOD":    {"key": "NSE_EQ|INE797F01020", "step": 20},
-    "SHRIRAMFIN":  {"key": "NSE_EQ|INE721A01013", "step": 20},
-    "MANAPPURAM":  {"key": "NSE_EQ|INE522D01027", "step": 2},
-    "M&MFIN":      {"key": "NSE_EQ|INE774D01024", "step": 5},
-    "LTFH":        {"key": "NSE_EQ|INE916DA01010","step": 5},
-    "APOLLOTYRE":  {"key": "NSE_EQ|INE438A01022", "step": 5},
-    "BALKRISIND":  {"key": "NSE_EQ|INE787D01026", "step": 50},
-    "TATACHEM":    {"key": "NSE_EQ|INE092A01019", "step": 10},
-    "DEEPAKNTR":   {"key": "NSE_EQ|INE288B01029", "step": 20},
-    "CONCOR":      {"key": "NSE_EQ|INE111A01025", "step": 10},
-    "GMRINFRA":    {"key": "NSE_EQ|INE776C01039", "step": 2},
-    "FORTIS":      {"key": "NSE_EQ|INE061F01013", "step": 5},
-    "MAXHEALTH":   {"key": "NSE_EQ|INE027H01010", "step": 10},
-    "NAUKRI":      {"key": "NSE_EQ|INE663F01024", "step": 50},
-    "HDFCAMC":     {"key": "NSE_EQ|INE127D01025", "step": 50},
-    "NIPPONLIFE":  {"key": "NSE_EQ|INE298J01013", "step": 10},
-    "SUNDARMFIN":  {"key": "NSE_EQ|INE660A01013", "step": 100},
-    "VOLTAS":      {"key": "NSE_EQ|INE226A01021", "step": 20},
-    "MCDOWELL-N":  {"key": "NSE_EQ|INE854D01024", "step": 20},
-    "BIOCON":      {"key": "NSE_EQ|INE376G01013", "step": 5},
-    "ALKEM":       {"key": "NSE_EQ|INE540L01014", "step": 50},
-    "TORNTPHARM":  {"key": "NSE_EQ|INE685A01028", "step": 50},
-    "IPCALAB":     {"key": "NSE_EQ|INE571A01020", "step": 20},
-    "IDEA":        {"key": "NSE_EQ|INE669E01016", "step": 1},
-    "NYKAA":       {"key": "NSE_EQ|INE388Y01029", "step": 5},
-    "PRESTIGE":    {"key": "NSE_EQ|INE811K01011", "step": 10},
-    "OBEROIRLTY":  {"key": "NSE_EQ|INE093I01010", "step": 20},
-    "LALPATHLAB":  {"key": "NSE_EQ|INE600L01024", "step": 50},
-    "INDIAMART":   {"key": "NSE_EQ|INE933S01016", "step": 100},
-    "JUSTDIAL":    {"key": "NSE_EQ|INE599M01018", "step": 20},
-    "AARTIIND":    {"key": "NSE_EQ|INE769A01020", "step": 10},
-    "GNFC":        {"key": "NSE_EQ|INE113B01010", "step": 10},
-    "JKCEMENT":    {"key": "NSE_EQ|INE823G01014", "step": 50},
-    "RAMCOCEM":    {"key": "NSE_EQ|INE331A01037", "step": 10},
-    "BOSCHLTD":    {"key": "NSE_EQ|INE323A01026", "step": 200},
-    "CUMMINSIND":  {"key": "NSE_EQ|INE298A01020", "step": 50},
-    "MRF":         {"key": "NSE_EQ|INE883A01011", "step": 500},
-    "PFIZER":      {"key": "NSE_EQ|INE182A01018", "step": 50},
-    "ABBOTINDIA":  {"key": "NSE_EQ|INE358A01014", "step": 200},
-    "METROPOLIS":  {"key": "NSE_EQ|INE225P01017", "step": 20},
-    "OFSS":        {"key": "NSE_EQ|INE881D01027", "step": 100},
-    "ICICIPRU":    {"key": "NSE_EQ|INE726G01019", "step": 10},
-    "SBICARD":     {"key": "NSE_EQ|INE018E01016", "step": 10},
-    "MFSL":        {"key": "NSE_EQ|INE247C01011", "step": 10},
-    "LICHSGFIN":   {"key": "NSE_EQ|INE115A01026", "step": 10},
-    "BANDHANBNK":  {"key": "NSE_EQ|INE545U01014", "step": 5},
-    "JINDALSTEL":  {"key": "NSE_EQ|INE749A01030", "step": 10},
-    "CESC":        {"key": "NSE_EQ|INE486A01013", "step": 5},
-    "IRB":         {"key": "NSE_EQ|INE821I01022", "step": 2},
-    "COLPAL":      {"key": "NSE_EQ|INE259A01022", "step": 20},
-    "EMAMILTD":    {"key": "NSE_EQ|INE548C01032", "step": 10},
-    "NAVINFLUOR":  {"key": "NSE_EQ|INE048G01026", "step": 50},
-    "PAYTM":       {"key": "NSE_EQ|INE982J01020", "step": 5},
-    "POLICYBZR":   {"key": "NSE_EQ|INE417T01026", "step": 10},
+    # INDICES — Weekly Expiry
+    "NIFTY":       {"key": "NSE_INDEX|Nifty 50",           "step": 50,  "expiry": WEEKLY_EXPIRY},
+    "BANKNIFTY":   {"key": "NSE_INDEX|Nifty Bank",          "step": 100, "expiry": WEEKLY_EXPIRY},
+    "FINNIFTY":    {"key": "NSE_INDEX|Nifty Fin Service",   "step": 50,  "expiry": WEEKLY_EXPIRY},
+    "MIDCPNIFTY":  {"key": "NSE_INDEX|Nifty Midcap Select", "step": 25,  "expiry": WEEKLY_EXPIRY},
+    # BANKING — Monthly
+    "HDFCBANK":    {"key": "NSE_EQ|INE040A01034", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "ICICIBANK":   {"key": "NSE_EQ|INE090A01021", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "SBIN":        {"key": "NSE_EQ|INE062A01020", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "AXISBANK":    {"key": "NSE_EQ|INE238A01034", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "KOTAKBANK":   {"key": "NSE_EQ|INE237A01028", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "INDUSINDBK":  {"key": "NSE_EQ|INE095A01012", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "BANKBARODA":  {"key": "NSE_EQ|INE028A01039", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "PNB":         {"key": "NSE_EQ|INE160A01022", "step": 2,   "expiry": MONTHLY_EXPIRY},
+    "CANBK":       {"key": "NSE_EQ|INE476A01014", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "FEDERALBNK":  {"key": "NSE_EQ|INE171A01029", "step": 2,   "expiry": MONTHLY_EXPIRY},
+    "IDFCFIRSTB":  {"key": "NSE_EQ|INE092T01019", "step": 2,   "expiry": MONTHLY_EXPIRY},
+    "AUBANK":      {"key": "NSE_EQ|INE949L01017", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "BANDHANBNK":  {"key": "NSE_EQ|INE545U01014", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "RBLBANK":     {"key": "NSE_EQ|INE976G01028", "step": 2,   "expiry": MONTHLY_EXPIRY},
+    # IT
+    "TCS":         {"key": "NSE_EQ|INE467B01029", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "INFY":        {"key": "NSE_EQ|INE009A01021", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "WIPRO":       {"key": "NSE_EQ|INE075A01022", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "HCLTECH":     {"key": "NSE_EQ|INE860A01027", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "TECHM":       {"key": "NSE_EQ|INE669C01036", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "LTIM":        {"key": "NSE_EQ|INE212H01026", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "MPHASIS":     {"key": "NSE_EQ|INE356A01018", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "PERSISTENT":  {"key": "NSE_EQ|INE262H01021", "step": 100, "expiry": MONTHLY_EXPIRY},
+    "COFORGE":     {"key": "NSE_EQ|INE591G01017", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "OFSS":        {"key": "NSE_EQ|INE881D01027", "step": 100, "expiry": MONTHLY_EXPIRY},
+    # AUTO
+    "TATAMOTORS":  {"key": "NSE_EQ|INE155A01022", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "MARUTI":      {"key": "NSE_EQ|INE585B01010", "step": 100, "expiry": MONTHLY_EXPIRY},
+    "BAJAJ-AUTO":  {"key": "NSE_EQ|INE917I01010", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "HEROMOTOCO":  {"key": "NSE_EQ|INE158A01026", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "EICHERMOT":   {"key": "NSE_EQ|INE066A01021", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "M&M":         {"key": "NSE_EQ|INE101A01026", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "ASHOKLEY":    {"key": "NSE_EQ|INE208A01029", "step": 2,   "expiry": MONTHLY_EXPIRY},
+    "TVSMOTOR":    {"key": "NSE_EQ|INE494B01023", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "BAJAJFINSV":  {"key": "NSE_EQ|INE918I01026", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "MOTHERSON":   {"key": "NSE_EQ|INE775A01035", "step": 2,   "expiry": MONTHLY_EXPIRY},
+    # ENERGY
+    "RELIANCE":    {"key": "NSE_EQ|INE002A01018", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "ONGC":        {"key": "NSE_EQ|INE213A01029", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "IOC":         {"key": "NSE_EQ|INE242A01010", "step": 2,   "expiry": MONTHLY_EXPIRY},
+    "BPCL":        {"key": "NSE_EQ|INE029A01011", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "GAIL":        {"key": "NSE_EQ|INE129A01019", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "ADANIENT":    {"key": "NSE_EQ|INE423A01024", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "ADANIPORTS":  {"key": "NSE_EQ|INE742F01042", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "NTPC":        {"key": "NSE_EQ|INE733E01010", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "POWERGRID":   {"key": "NSE_EQ|INE752E01010", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "TATAPOWER":   {"key": "NSE_EQ|INE245A01021", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "HINDPETRO":   {"key": "NSE_EQ|INE094A01015", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    # METALS
+    "TATASTEEL":   {"key": "NSE_EQ|INE081A01020", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "JSWSTEEL":    {"key": "NSE_EQ|INE019A01038", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "HINDALCO":    {"key": "NSE_EQ|INE038A01020", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "VEDL":        {"key": "NSE_EQ|INE205A01025", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "SAIL":        {"key": "NSE_EQ|INE114A01011", "step": 2,   "expiry": MONTHLY_EXPIRY},
+    "NMDC":        {"key": "NSE_EQ|INE584A01023", "step": 2,   "expiry": MONTHLY_EXPIRY},
+    "COALINDIA":   {"key": "NSE_EQ|INE522F01014", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "JINDALSTEL":  {"key": "NSE_EQ|INE749A01030", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    # PHARMA
+    "SUNPHARMA":   {"key": "NSE_EQ|INE044A01036", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "DRREDDY":     {"key": "NSE_EQ|INE089A01023", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "CIPLA":       {"key": "NSE_EQ|INE059A01026", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "DIVISLAB":    {"key": "NSE_EQ|INE361B01024", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "AUROPHARMA":  {"key": "NSE_EQ|INE406A01037", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "LUPIN":       {"key": "NSE_EQ|INE326A01037", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "BIOCON":      {"key": "NSE_EQ|INE376G01013", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "ALKEM":       {"key": "NSE_EQ|INE540L01014", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "TORNTPHARM":  {"key": "NSE_EQ|INE685A01028", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "IPCALAB":     {"key": "NSE_EQ|INE571A01020", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    # NBFC & FINANCE
+    "BAJFINANCE":  {"key": "NSE_EQ|INE296A01024", "step": 100, "expiry": MONTHLY_EXPIRY},
+    "CHOLAFIN":    {"key": "NSE_EQ|INE121A01024", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "MUTHOOTFIN":  {"key": "NSE_EQ|INE414G01012", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "RECLTD":      {"key": "NSE_EQ|INE020B01018", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "PFC":         {"key": "NSE_EQ|INE134E01011", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "HDFCLIFE":    {"key": "NSE_EQ|INE795G01014", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "SBILIFE":     {"key": "NSE_EQ|INE123W01016", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "ICICIGI":     {"key": "NSE_EQ|INE765G01017", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "SBICARD":     {"key": "NSE_EQ|INE018E01016", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "SHRIRAMFIN":  {"key": "NSE_EQ|INE721A01013", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "MANAPPURAM":  {"key": "NSE_EQ|INE522D01027", "step": 2,   "expiry": MONTHLY_EXPIRY},
+    "M&MFIN":      {"key": "NSE_EQ|INE774D01024", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "LICHSGFIN":   {"key": "NSE_EQ|INE115A01026", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    # INFRA
+    "LT":          {"key": "NSE_EQ|INE018A01030", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "LTTS":        {"key": "NSE_EQ|INE010V01017", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "ABB":         {"key": "NSE_EQ|INE117A01022", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "SIEMENS":     {"key": "NSE_EQ|INE003A01024", "step": 100, "expiry": MONTHLY_EXPIRY},
+    "HAVELLS":     {"key": "NSE_EQ|INE176B01034", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "BHEL":        {"key": "NSE_EQ|INE257A01026", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "IRFC":        {"key": "NSE_EQ|INE053F01010", "step": 2,   "expiry": MONTHLY_EXPIRY},
+    "HAL":         {"key": "NSE_EQ|INE066F01020", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "BEL":         {"key": "NSE_EQ|INE263A01024", "step": 2,   "expiry": MONTHLY_EXPIRY},
+    "CONCOR":      {"key": "NSE_EQ|INE111A01025", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "GMRINFRA":    {"key": "NSE_EQ|INE776C01039", "step": 2,   "expiry": MONTHLY_EXPIRY},
+    # FMCG
+    "HINDUNILVR":  {"key": "NSE_EQ|INE030A01027", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "ITC":         {"key": "NSE_EQ|INE154A01025", "step": 2,   "expiry": MONTHLY_EXPIRY},
+    "NESTLEIND":   {"key": "NSE_EQ|INE239A01016", "step": 100, "expiry": MONTHLY_EXPIRY},
+    "BRITANNIA":   {"key": "NSE_EQ|INE216A01030", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "GODREJCP":    {"key": "NSE_EQ|INE102D01028", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "DABUR":       {"key": "NSE_EQ|INE016A01026", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "MARICO":      {"key": "NSE_EQ|INE196A01026", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "TATACONSUM":  {"key": "NSE_EQ|INE192A01025", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "COLPAL":      {"key": "NSE_EQ|INE259A01022", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    # CEMENT
+    "ULTRACEMCO":  {"key": "NSE_EQ|INE481G01011", "step": 100, "expiry": MONTHLY_EXPIRY},
+    "SHREECEM":    {"key": "NSE_EQ|INE070A01015", "step": 200, "expiry": MONTHLY_EXPIRY},
+    "AMBUJACEM":   {"key": "NSE_EQ|INE079A01024", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "ACCLTD":      {"key": "NSE_EQ|INE012A01025", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "JKCEMENT":    {"key": "NSE_EQ|INE823G01014", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "RAMCOCEM":    {"key": "NSE_EQ|INE331A01037", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    # TELECOM
+    "BHARTIARTL":  {"key": "NSE_EQ|INE397D01024", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "IDEA":        {"key": "NSE_EQ|INE669E01016", "step": 1,   "expiry": MONTHLY_EXPIRY},
+    # OTHERS
+    "ASIANPAINT":  {"key": "NSE_EQ|INE021A01026", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "TITAN":       {"key": "NSE_EQ|INE280A01028", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "INDIGO":      {"key": "NSE_EQ|INE646L01027", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "IRCTC":       {"key": "NSE_EQ|INE335Y01020", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "DLF":         {"key": "NSE_EQ|INE271C01023", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "GRASIM":      {"key": "NSE_EQ|INE047A01021", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "APOLLOHOSP":  {"key": "NSE_EQ|INE437A01024", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "ZOMATO":      {"key": "NSE_EQ|INE758T01015", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "DMART":       {"key": "NSE_EQ|INE192R01011", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "TRENT":       {"key": "NSE_EQ|INE849A01020", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "PIDILITIND":  {"key": "NSE_EQ|INE318A01026", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "UPL":         {"key": "NSE_EQ|INE628A01036", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "SRF":         {"key": "NSE_EQ|INE647A01010", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "GODREJPROP":  {"key": "NSE_EQ|INE484J01027", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "OBEROIRLTY":  {"key": "NSE_EQ|INE093I01010", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "MAXHEALTH":   {"key": "NSE_EQ|INE027H01010", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "FORTIS":      {"key": "NSE_EQ|INE061F01013", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "BOSCHLTD":    {"key": "NSE_EQ|INE323A01026", "step": 200, "expiry": MONTHLY_EXPIRY},
+    "APOLLOTYRE":  {"key": "NSE_EQ|INE438A01022", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "MRF":         {"key": "NSE_EQ|INE883A01011", "step": 500, "expiry": MONTHLY_EXPIRY},
+    "TATACHEM":    {"key": "NSE_EQ|INE092A01019", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "DEEPAKNTR":   {"key": "NSE_EQ|INE288B01029", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "NAUKRI":      {"key": "NSE_EQ|INE663F01024", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "HDFCAMC":     {"key": "NSE_EQ|INE127D01025", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "MCDOWELL-N":  {"key": "NSE_EQ|INE854D01024", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "VOLTAS":      {"key": "NSE_EQ|INE226A01021", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "JUBLFOOD":    {"key": "NSE_EQ|INE797F01020", "step": 20,  "expiry": MONTHLY_EXPIRY},
+    "BALKRISIND":  {"key": "NSE_EQ|INE787D01026", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "CUMMINSIND":  {"key": "NSE_EQ|INE298A01020", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "NAVINFLUOR":  {"key": "NSE_EQ|INE048G01026", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "AARTIIND":    {"key": "NSE_EQ|INE769A01020", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "PRESTIGE":    {"key": "NSE_EQ|INE811K01011", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "LALPATHLAB":  {"key": "NSE_EQ|INE600L01024", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "NYKAA":       {"key": "NSE_EQ|INE388Y01029", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "PAYTM":       {"key": "NSE_EQ|INE982J01020", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "EMAMILTD":    {"key": "NSE_EQ|INE548C01032", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "CESC":        {"key": "NSE_EQ|INE486A01013", "step": 5,   "expiry": MONTHLY_EXPIRY},
+    "GNFC":        {"key": "NSE_EQ|INE113B01010", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "JKCEMENT":    {"key": "NSE_EQ|INE823G01014", "step": 50,  "expiry": MONTHLY_EXPIRY},
+    "IRB":         {"key": "NSE_EQ|INE821I01022", "step": 2,   "expiry": MONTHLY_EXPIRY},
+    "LTFH":        {"key": "NSE_EQ|INE916DA01010","step": 5,   "expiry": MONTHLY_EXPIRY},
+    "NIPPONLIFE":  {"key": "NSE_EQ|INE298J01013", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "ICICIPRU":    {"key": "NSE_EQ|INE726G01019", "step": 10,  "expiry": MONTHLY_EXPIRY},
+    "SUNDARMFIN":  {"key": "NSE_EQ|INE660A01013", "step": 100, "expiry": MONTHLY_EXPIRY},
+    "MFSL":        {"key": "NSE_EQ|INE247C01011", "step": 10,  "expiry": MONTHLY_EXPIRY},
 }
 
 prev_rsi = {}
@@ -237,12 +264,12 @@ def get_prices_batch(keys):
         log(f"Price error: {e}")
     return {}
 
-def get_option_chain(key):
+def get_option_chain(key, expiry):
     try:
         res = requests.get(
             "https://api.upstox.com/v2/option/chain",
             headers=HEADERS,
-            params={"instrument_key": key, "expiry_date": EXPIRY_DATE},
+            params={"instrument_key": key, "expiry_date": expiry},
             timeout=15
         )
         data = res.json()
@@ -253,14 +280,19 @@ def get_option_chain(key):
     return []
 
 def run_scan():
+    # Refresh expiry dates on each scan
+    weekly  = get_weekly_expiry()
+    monthly = get_monthly_expiry()
+
     log("=" * 55)
-    log(f"🔍 Scanning {len(FNO_STOCKS)} F&O stocks")
+    log(f"🔍 Scanning {len(FNO_STOCKS)} stocks")
+    log(f"📅 Weekly:  {weekly}  (NIFTY/BANKNIFTY/FINNIFTY)")
+    log(f"📅 Monthly: {monthly} (All stocks)")
     log("=" * 55)
 
     items    = list(FNO_STOCKS.items())
     all_data = {}
 
-    # Batch prices — 20 at a time
     for i in range(0, len(items), 20):
         batch = items[i:i+20]
         keys  = [v["key"] for _, v in batch]
@@ -273,13 +305,15 @@ def run_scan():
 
     for symbol, info in FNO_STOCKS.items():
         try:
-            ck    = info["key"].replace("|", ":")
-            sd    = all_data.get(ck) or all_data.get(info["key"], {})
-            price = sd.get("last_price", 0)
+            ck     = info["key"].replace("|", ":")
+            sd     = all_data.get(ck) or all_data.get(info["key"], {})
+            price  = sd.get("last_price", 0)
             if not price: continue
 
-            atm   = get_atm(price, info["step"])
-            chain = get_option_chain(info["key"])
+            # Use correct expiry per symbol
+            expiry = weekly if symbol in ["NIFTY","BANKNIFTY","FINNIFTY","MIDCPNIFTY"] else monthly
+            atm    = get_atm(price, info["step"])
+            chain  = get_option_chain(info["key"], expiry)
             if not chain: continue
 
             for item in chain:
@@ -298,8 +332,7 @@ def run_scan():
 
                     cache_key = f"{symbol}_{strike}_{label}"
                     old_rsi   = prev_rsi.get(cache_key, 50)
-                    rsi       = min(max(round(50 + chg * 2 + (oi/500000), 1), 20), 90)
-
+                    rsi       = min(max(round(50 + chg*2 + (oi/500000), 1), 20), 90)
                     is_cross  = old_rsi < 60 <= rsi
                     prev_rsi[cache_key] = rsi
 
@@ -314,12 +347,13 @@ def run_scan():
                             "rsi": rsi, "old_rsi": old_rsi,
                             "crossed": is_cross, "spot": price,
                             "atm": atm, "oi": oi, "vol": vol,
+                            "expiry": expiry,
                             "sl": sl, "t1": t1, "t2": t2
                         }
                         signals.append(entry)
 
                         icon = "🔥" if is_cross else "✅"
-                        log(f"{icon} {symbol} {strike}{label} RSI:{rsi} LTP:₹{ltp} Spot:₹{price}")
+                        log(f"{icon} {symbol} {strike}{label} RSI:{rsi} LTP:₹{ltp} Exp:{expiry}")
 
                         if is_cross:
                             crossed.append(entry)
@@ -329,6 +363,7 @@ def run_scan():
                                 f"💰 LTP: ₹{ltp}\n"
                                 f"📈 RSI: {rsi} (was {old_rsi})\n"
                                 f"🎯 Spot: ₹{price} | ATM: {atm}\n"
+                                f"📅 Expiry: {expiry}\n"
                                 f"📊 OI: {oi:,} | Vol: {vol:,}\n\n"
                                 f"📌 Entry: ₹{ltp}\n"
                                 f"🛑 SL: ₹{sl} (-30%)\n"
@@ -345,21 +380,22 @@ def run_scan():
         top = sorted(signals, key=lambda x: x["rsi"], reverse=True)[:8]
         msg = f"📊 <b>Scan — {datetime.now().strftime('%H:%M')}</b>\n\n"
         for s in top:
-            msg += f"• <b>{s['symbol']} {s['strike']}{s['type']}</b> RSI:{s['rsi']} ₹{s['ltp']}\n"
+            msg += f"• <b>{s['symbol']} {s['strike']}{s['type']}</b> RSI:{s['rsi']} ₹{s['ltp']} Exp:{s['expiry']}\n"
         send_telegram(msg)
 
-# ── MAIN — NO MARKET HOURS CHECK ──────────────────────────
-log("🚀 ATM RSI SCANNER STARTED — 24/7 MODE")
+# ── MAIN ──────────────────────────────────────────────────
+log("🚀 ATM RSI SCANNER — AUTO EXPIRY")
+log(f"📅 Weekly Expiry:  {WEEKLY_EXPIRY}  (NIFTY/BANKNIFTY)")
+log(f"📅 Monthly Expiry: {MONTHLY_EXPIRY} (Stocks)")
 log(f"📊 {len(FNO_STOCKS)} F&O stocks")
-log(f"📅 Expiry: {EXPIRY_DATE}")
-log(f"🔔 Telegram: {'✅' if TELEGRAM_BOT else '❌'}")
+log(f"🔔 Telegram: {'✅' if TELEGRAM_BOT else '❌ Set TELEGRAM_BOT variable'}")
 log("=" * 55)
 
 send_telegram(
-    f"🚀 <b>ATM RSI Scanner ON — 24/7!</b>\n"
-    f"📊 {len(FNO_STOCKS)} F&O stocks\n"
-    f"📅 Expiry: {EXPIRY_DATE}\n"
-    f"🎯 RSI 60 Cross Alert\n"
+    f"🚀 <b>ATM RSI Scanner ON!</b>\n"
+    f"📅 Weekly: {WEEKLY_EXPIRY} (NIFTY/BANKNIFTY)\n"
+    f"📅 Monthly: {MONTHLY_EXPIRY} (Stocks)\n"
+    f"📊 {len(FNO_STOCKS)} stocks\n"
     f"🕐 {datetime.now().strftime('%d %b %Y %H:%M')}"
 )
 
