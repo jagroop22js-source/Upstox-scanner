@@ -273,14 +273,9 @@ def run_scan():
             if not price: continue
 
             expiry = WEEKLY_EXPIRY if info["expiry"] == "weekly" else MONTHLY_EXPIRY
-atm    = get_atm(price, info["step"])
-chain  = get_option_chain(info["key"], expiry)
-
-log(f"DEBUG {symbol} | Spot={price} | ATM={atm} | Chain Items={len(chain)}")
-
-if not chain:
-    log(f"❌ No option chain for {symbol}")
-    continue
+            atm    = get_atm(price, info["step"])
+            chain  = get_option_chain(info["key"], expiry)
+            if not chain: continue
 
             for item in chain:
                 strike = item.get("strike_price", 0)
