@@ -19,18 +19,31 @@ def get_weekly_expiry():
     if days_ahead <= 0:
         days_ahead += 7
     return (today + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
-
 def get_monthly_expiry():
-    """Last Thursday of current month — BANKNIFTY + all stocks"""
     today = datetime.now()
-    if today.month == 12:
-        next_month = today.replace(year=today.year+1, month=1, day=1)
+    year  = today.year
+    month = today.month
+    # Find last Thursday of current month
+    if month == 12:
+        next_month = datetime(year+1, 1, 1)
     else:
-        next_month = today.replace(month=today.month+1, day=1)
-    last_day   = next_month - timedelta(days=1)
-    days_back  = (last_day.weekday() - 3) % 7
+        next_month = datetime(year, month+1, 1)
+    last_day  = next_month - timedelta(days=1)
+    days_back = (last_day.weekday() - 3) % 7
     last_thurs = last_day - timedelta(days=days_back)
+    # Agar guzar gaya to next month ki lo
+    if last_thurs.date() < today.date():
+        month = month + 1 if month < 12 else 1
+        year  = year if month > 1 else year + 1
+        if month == 12:
+            next_month = datetime(year+1, 1, 1)
+        else:
+            next_month = datetime(year, month+1, 1)
+        last_day  = next_month - timedelta(days=1)
+        days_back = (last_day.weekday() - 3) % 7
+        last_thurs = last_day - timedelta(days=days_back)
     return last_thurs.strftime("%Y-%m-%d")
+
 
 WEEKLY_EXPIRY  = get_weekly_expiry()   # NIFTY only
 MONTHLY_EXPIRY = get_monthly_expiry()  # BANKNIFTY + all stocks
